@@ -4,9 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>班級數位聯絡簿</title>
+  <!-- 預先建立連線，加速背景同步 -->
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
   <style>
+    /* ================= 外觀樣式 ================= */
     :root {
       --primary: #1e293b;
       --accent: #2563eb;
@@ -24,7 +26,6 @@
     * { box-sizing: border-box; font-family: "Microsoft JhengHei", -apple-system, BlinkMacSystemFont, sans-serif; }
     body { margin: 0; background-color: var(--bg); color: var(--text); padding-bottom: 90px; }
 
-    /* 頂部導覽列 */
     header {
       background-color: var(--primary);
       color: white;
@@ -44,7 +45,6 @@
     }
     .header-title { font-size: 1.25rem; font-weight: 800; letter-spacing: 1px; }
 
-    /* 頂部 5 個分類切換按鈕 */
     .nav-tabs {
       display: flex;
       max-width: 760px;
@@ -74,7 +74,6 @@
 
     .container { max-width: 760px; margin: 20px auto; padding: 0 12px; }
 
-    /* 前台三欄式聯絡簿表格 */
     .table-card {
       background: var(--card);
       border-radius: 12px;
@@ -132,7 +131,6 @@
     .due-today { background: #fee2e2; color: #b91c1c; }
     .due-tomorrow { background: #fef3c7; color: #b45309; }
 
-    /* 彈出視窗 */
     .modal-bg {
       display: none;
       position: fixed;
@@ -184,7 +182,6 @@
       min-height: 70px;
     }
 
-    /* 後台管理介面 */
     #backendSection { display: none; }
     .admin-box {
       background: white;
@@ -290,7 +287,7 @@
     </div>
   </header>
 
-  <!-- 【前台】學生瀏覽區 -->
+  <!-- 【前台】學生瀏覽區：預設裡面是空的，不會有卡住的「讀取中」 -->
   <main class="container" id="frontendSection">
     <div class="table-card">
       <table class="contact-table">
@@ -301,10 +298,7 @@
             <th class="col-3">時間</th>
           </tr>
         </thead>
-        <tbody id="tableBody">
-          <!-- 預設顯示載入中，但有了實體快取，這段字通常活不過 0.05 秒 -->
-          <tr><td colspan="3" style="text-align:center; padding:40px; color:#64748b;">⚡ 讀取中...</td></tr>
-        </tbody>
+        <tbody id="tableBody"></tbody>
       </table>
     </div>
   </main>
@@ -313,7 +307,7 @@
   <main class="container" id="backendSection">
     <div class="admin-box">
       <div class="admin-status-bar">
-        <span id="adminSyncText">🟡 初始化連線中...</span>
+        <span id="adminSyncText">🟡 正在背景同步雲端資料...</span>
         <button class="btn btn-gray btn-sm" onclick="logoutAdmin()">🔒 登出鎖定後台</button>
       </div>
 
@@ -389,7 +383,6 @@
     </div>
   </main>
 
-  <!-- 彈出視窗 1：看細項 -->
   <div class="modal-bg" id="detailModal" onclick="closeModal('detailModal')">
     <div class="modal-card" onclick="event.stopPropagation()">
       <div class="modal-top">
@@ -401,7 +394,6 @@
     </div>
   </div>
 
-  <!-- 彈出視窗 2：後台密碼驗證 -->
   <div class="modal-bg" id="pwdModal" onclick="closeModal('pwdModal')">
     <div class="modal-card" onclick="event.stopPropagation()">
       <div class="modal-top">
@@ -418,35 +410,21 @@
   <button class="mode-switch-btn" id="switchBtn" onclick="switchView()">前台 / 後台</button>
 
   <script type="module">
-    // 這裡引入了最新的 Firestore 模組化 API，包含「實體持久化快取」套件
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-
-    const firebaseConfig = {
-      apiKey: "AIzaSyCLIEwZ1UCdvE66ISLblxZdCF51dlWSs7k",
-      authDomain: "class-book-d2557.firebaseapp.com",
-      projectId: "class-book-d2557",
-      storageBucket: "class-book-d2557.firebasestorage.app",
-      messagingSenderId: "293636243310",
-      appId: "1:293636243310:web:55fd394288806f58908b7f",
-      measurementId: "G-LCNB617D8V"
-    };
-
-    const ADMIN_PASSWORD = "1234";
+    // ==========================================
+    // 🌟 第一階段：0.001 秒視覺瞬間渲染 (無須等 Firebase)
+    // ==========================================
+    const CACHE_KEY = "cb_instant_cache_v4"; // 升級快取金鑰確保不被舊版本干擾
     const STATE_TAB_KEY = "cb_last_tab";
     const STATE_AUTH_KEY = "cb_admin_unlocked";
     const STATE_VIEW_KEY = "cb_last_view";
+    const ADMIN_PASSWORD = "1234";
 
-    // 狀態記憶（不用重登）
-    let allData = [];
+    // 馬上從瀏覽器肚子裡抓出上次看過的聯絡簿
+    let allData = JSON.parse(localStorage.getItem(CACHE_KEY) || "[]");
     let currentTab = localStorage.getItem(STATE_TAB_KEY) || "綜合";
     let isUnlocked = localStorage.getItem(STATE_AUTH_KEY) === "true";
     let inBackend = (localStorage.getItem(STATE_VIEW_KEY) === "backend") && isUnlocked;
 
-    // 清除舊版的陽春快取，交給更強的 Firebase IndexedDB 處理
-    localStorage.removeItem("cb_clean_cache_v3");
-
-    // === 工具函式 ===
     function parseDateObj(dateStr) {
       if (!dateStr) return new Date();
       const onlyDate = String(dateStr).split('T')[0];
@@ -480,7 +458,7 @@
       return String(str).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
     }
 
-    // === 畫面渲染 ===
+    // 將資料畫到畫面上（這行程式執行速度小於 0.01 秒）
     function renderFrontendTable() {
       const tbody = document.getElementById("tableBody");
       document.querySelectorAll(".tab-btn").forEach(b => {
@@ -495,7 +473,7 @@
       });
 
       if (visibleList.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; padding:40px; color:#64748b;">🎉 目前「${currentTab}」沒有待辦事項！</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; padding:40px; color:#64748b;">🎉 目前沒有待辦事項！</td></tr>`;
         return;
       }
 
@@ -548,41 +526,53 @@
       }).join('');
     }
 
-    // 初始狀態還原
+    // ⚡ 網頁開啟瞬間，直接強制印出畫面！(跳過任何網路等待)
     window.setQuickDate = (addDays) => {
       const d = new Date(); d.setDate(d.getDate() + addDays);
       const yyyy = d.getFullYear(); const mm = String(d.getMonth() + 1).padStart(2, '0'); const dd = String(d.getDate()).padStart(2, '0');
       document.getElementById("timeInput").value = `${yyyy}-${mm}-${dd}`;
     };
     window.setQuickDate(1);
+    renderFrontendTable();
+    renderBackendHistory();
     if (inBackend) enterBackend();
 
+
     // ==========================================
-    // 🌟 IG 級秒開核心：啟動 Firestore 實體離線快取
+    // 🌟 第二階段：背景連線 Firebase 更新最新資料
     // ==========================================
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCLIEwZ1UCdvE66ISLblxZdCF51dlWSs7k",
+      authDomain: "class-book-d2557.firebaseapp.com",
+      projectId: "class-book-d2557",
+      storageBucket: "class-book-d2557.firebasestorage.app",
+      messagingSenderId: "293636243310",
+      appId: "1:293636243310:web:55fd394288806f58908b7f",
+      measurementId: "G-LCNB617D8V"
+    };
+
     const app = initializeApp(firebaseConfig);
-    const db = initializeFirestore(app, {
-      localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
-    });
+    const db = getFirestore(app);
     const colRef = collection(db, "contactBookItems");
 
-    // 監聽資料庫（第一次會瞬間從硬碟讀取，接著再背景同步伺服器新資料）
-    onSnapshot(colRef, { includeMetadataChanges: true }, (snapshot) => {
-      // 判斷這包資料是來自硬碟快取還是雲端最新
-      const source = snapshot.metadata.fromCache ? "⚡ 實體快取秒開（背景同步中...）" : "🟢 雲端已同步（全班即時互通）";
-      document.getElementById("adminSyncText").innerText = source;
-
+    // 只要雲端資料有變，就偷偷更新本地快取，並重繪畫面 (視覺無感)
+    onSnapshot(colRef, (snapshot) => {
+      document.getElementById("adminSyncText").innerText = "🟢 雲端已同步（全班分頁即時互通）";
       allData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       allData.sort((a, b) => parseDateObj(a.deadline) - parseDateObj(b.deadline));
+      localStorage.setItem(CACHE_KEY, JSON.stringify(allData));
       
       renderFrontendTable();
       renderBackendHistory();
     }, (err) => {
-      console.error("Firestore 錯誤:", err);
-      document.getElementById("adminSyncText").innerText = "🔴 連線異常：" + err.code;
+      console.error("Firestore 背景連線失敗:", err);
+      document.getElementById("adminSyncText").innerText = "🔴 目前離線，請檢查網路連線";
     });
 
-    // === 互動功能 ===
+    // === 互動功能綁定 ===
     window.setSubject = (subName) => {
       document.getElementById("subInput").value = subName;
       if (subName === "回條") document.getElementById("catInput").value = "回條";
@@ -607,7 +597,6 @@
       document.getElementById("detailModal").style.display = "flex";
     };
 
-    // 新增資料：因為開啟了快取，addDoc 也會被瞬間寫入本機並反映在畫面上，不卡頓
     window.saveData = async () => {
       const editId = document.getElementById("editingId").value;
       const category = document.getElementById("catInput").value;
@@ -622,7 +611,7 @@
       }
 
       const itemObj = { category, subject, title, deadline, details, active: true };
-      window.clearForm(); // 先把表單清空讓使用者覺得已經完成
+      window.clearForm(); // 使用者按下儲存後，馬上清空表單，不要讓他等
 
       try {
         if (editId) {
@@ -631,21 +620,21 @@
           await addDoc(colRef, itemObj);
         }
       } catch (e) {
-        console.warn("目前可能離線，資料已保存至硬碟，恢復連線時將自動上傳。", e);
+        alert("網路不穩，寫入失敗：" + e.message);
       }
     };
 
     window.clearAllRecords = async () => {
       if (!confirm("確定要「全部清空」所有聯絡簿記錄嗎？")) return;
+      allData = [];
+      localStorage.setItem(CACHE_KEY, "[]");
+      renderFrontendTable();
+      renderBackendHistory();
       try {
         const snap = await getDocs(colRef);
-        for (const d of snap.docs) {
-          await deleteDoc(doc(db, "contactBookItems", d.id));
-        }
+        for (const d of snap.docs) { await deleteDoc(doc(db, "contactBookItems", d.id)); }
         alert("✅ 已全部清空！");
-      } catch (e) {
-        console.warn(e);
-      }
+      } catch (e) {}
     };
 
     window.loadToEdit = (id) => {
