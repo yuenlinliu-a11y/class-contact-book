@@ -195,15 +195,17 @@
       margin-bottom: 20px;
     }
     .admin-status-bar {
-      font-size: 0.82rem;
-      padding: 6px 12px;
-      border-radius: 6px;
+      font-size: 0.85rem;
+      padding: 8px 12px;
+      border-radius: 8px;
       background: #f1f5f9;
-      color: var(--muted);
+      color: var(--text);
       margin-bottom: 16px;
       display: flex;
       justify-content: space-between;
       align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
     }
     .input-group { margin-bottom: 16px; }
     .input-group label { display: block; font-weight: 700; margin-bottom: 6px; font-size: 0.92rem; color: var(--primary); }
@@ -288,7 +290,7 @@
     </div>
   </header>
 
-  <!-- 【前台】學生瀏覽區（完全乾淨，無任何工程提示或燈號） -->
+  <!-- 【前台】學生瀏覽區 -->
   <main class="container" id="frontendSection">
     <div class="table-card">
       <table class="contact-table">
@@ -299,7 +301,10 @@
             <th class="col-3">時間</th>
           </tr>
         </thead>
-        <tbody id="tableBody"></tbody>
+        <tbody id="tableBody">
+          <!-- 預設顯示載入中，但有了實體快取，這段字通常活不過 0.05 秒 -->
+          <tr><td colspan="3" style="text-align:center; padding:40px; color:#64748b;">⚡ 讀取中...</td></tr>
+        </tbody>
       </table>
     </div>
   </main>
@@ -308,7 +313,7 @@
   <main class="container" id="backendSection">
     <div class="admin-box">
       <div class="admin-status-bar">
-        <span id="adminSyncText">🟡 正在同步雲端資料...</span>
+        <span id="adminSyncText">🟡 初始化連線中...</span>
         <button class="btn btn-gray btn-sm" onclick="logoutAdmin()">🔒 登出鎖定後台</button>
       </div>
 
@@ -373,8 +378,11 @@
     </div>
 
     <div class="admin-box">
-      <h3 style="margin-top:0; color:var(--primary);">📂 後台記錄管理（含已截止項目）</h3>
-      <p style="font-size:0.85rem; color:var(--muted); margin-top:-6px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:10px;">
+        <h3 style="margin:0; color:var(--primary);">📂 後台記錄管理（含已截止項目）</h3>
+        <button class="btn btn-red btn-sm" onclick="clearAllRecords()">🗑️ 一鍵清空所有記錄</button>
+      </div>
+      <p style="font-size:0.85rem; color:var(--muted); margin-top:0;">
         💡 若遇到延期，點擊該項目的「編輯 / 延期」重設日期並儲存，即可重新上架到前台。
       </p>
       <div id="historyList"></div>
@@ -410,8 +418,9 @@
   <button class="mode-switch-btn" id="switchBtn" onclick="switchView()">前台 / 後台</button>
 
   <script type="module">
+    // 這裡引入了最新的 Firestore 模組化 API，包含「實體持久化快取」套件
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { initializeFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+    import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyCLIEwZ1UCdvE66ISLblxZdCF51dlWSs7k",
@@ -424,16 +433,20 @@
     };
 
     const ADMIN_PASSWORD = "1234";
-    const CACHE_KEY = "cb_fast_cache_v2";
     const STATE_TAB_KEY = "cb_last_tab";
     const STATE_AUTH_KEY = "cb_admin_unlocked";
     const STATE_VIEW_KEY = "cb_last_view";
 
-    let allData = JSON.parse(localStorage.getItem(CACHE_KEY) || "[]");
+    // 狀態記憶（不用重登）
+    let allData = [];
     let currentTab = localStorage.getItem(STATE_TAB_KEY) || "綜合";
     let isUnlocked = localStorage.getItem(STATE_AUTH_KEY) === "true";
     let inBackend = (localStorage.getItem(STATE_VIEW_KEY) === "backend") && isUnlocked;
 
+    // 清除舊版的陽春快取，交給更強的 Firebase IndexedDB 處理
+    localStorage.removeItem("cb_clean_cache_v3");
+
+    // === 工具函式 ===
     function parseDateObj(dateStr) {
       if (!dateStr) return new Date();
       const onlyDate = String(dateStr).split('T')[0];
@@ -441,46 +454,33 @@
       if (parts.length !== 3) return new Date(dateStr);
       return new Date(parts[0], parts[1] - 1, parts[2]);
     }
-
     function isDateExpired(dateStr) {
       const target = parseDateObj(dateStr);
       target.setHours(23, 59, 59, 999);
       return new Date() > target;
     }
-
     function getDaysLeftBadge(dateStr) {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const target = parseDateObj(dateStr);
-      target.setHours(0, 0, 0, 0);
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const target = parseDateObj(dateStr); target.setHours(0, 0, 0, 0);
       const diffDays = Math.round((target - today) / (1000 * 60 * 60 * 24));
       if (diffDays === 0) return `<span class="due-badge due-today">今日</span>`;
       if (diffDays === 1) return `<span class="due-badge due-tomorrow">明日</span>`;
       return "";
     }
-
     function getShortDate(dateStr) {
-      const d = parseDateObj(dateStr);
-      const week = ['日', '一', '二', '三', '四', '五', '六'];
+      const d = parseDateObj(dateStr); const week = ['日', '一', '二', '三', '四', '五', '六'];
       return `${d.getMonth() + 1}/${d.getDate()}(${week[d.getDay()]})`;
     }
-
     function getFullDate(dateStr) {
-      const d = parseDateObj(dateStr);
-      const week = ['日', '一', '二', '三', '四', '五', '六'];
+      const d = parseDateObj(dateStr); const week = ['日', '一', '二', '三', '四', '五', '六'];
       return `${d.getMonth() + 1}月${d.getDate()}日 (星期${week[d.getDay()]})`;
     }
-
     function escapeHtml(str) {
       if (!str) return "";
       return String(str).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
     }
 
-    function saveCache() {
-      allData.sort((a, b) => parseDateObj(a.deadline) - parseDateObj(b.deadline));
-      localStorage.setItem(CACHE_KEY, JSON.stringify(allData));
-    }
-
+    // === 畫面渲染 ===
     function renderFrontendTable() {
       const tbody = document.getElementById("tableBody");
       document.querySelectorAll(".tab-btn").forEach(b => {
@@ -519,7 +519,6 @@
         box.innerHTML = `<p style="color:#64748b; text-align:center; padding:20px;">目前還沒有任何記錄</p>`;
         return;
       }
-
       const adminList = [...allData].reverse();
       box.innerHTML = adminList.map(item => {
         const expired = isDateExpired(item.deadline);
@@ -549,43 +548,41 @@
       }).join('');
     }
 
+    // 初始狀態還原
     window.setQuickDate = (addDays) => {
-      const d = new Date();
-      d.setDate(d.getDate() + addDays);
-      const yyyy = d.getFullYear();
-      const mm = String(d.getMonth() + 1).padStart(2, '0');
-      const dd = String(d.getDate()).padStart(2, '0');
+      const d = new Date(); d.setDate(d.getDate() + addDays);
+      const yyyy = d.getFullYear(); const mm = String(d.getMonth() + 1).padStart(2, '0'); const dd = String(d.getDate()).padStart(2, '0');
       document.getElementById("timeInput").value = `${yyyy}-${mm}-${dd}`;
     };
     window.setQuickDate(1);
-    renderFrontendTable();
-    renderBackendHistory();
     if (inBackend) enterBackend();
 
-    // 採用自動偵測連線協定，確保校園網路與家用網路都能秒連
+    // ==========================================
+    // 🌟 IG 級秒開核心：啟動 Firestore 實體離線快取
+    // ==========================================
     const app = initializeApp(firebaseConfig);
-    const db = initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
+    const db = initializeFirestore(app, {
+      localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
+    });
     const colRef = collection(db, "contactBookItems");
 
-    onSnapshot(colRef, async (snapshot) => {
-      document.getElementById("adminSyncText").innerText = "🟢 雲端資料庫已連線（全班即時同步中）";
-      
-      // 若之前有在離線狀態新增的 local_ 暫存項目，連上線後自動補傳到雲端
-      const localPending = allData.filter(x => String(x.id).startsWith("local_"));
-      for (const item of localPending) {
-        const { id, ...cleanObj } = item;
-        try { await addDoc(colRef, cleanObj); } catch (e) {}
-      }
+    // 監聽資料庫（第一次會瞬間從硬碟讀取，接著再背景同步伺服器新資料）
+    onSnapshot(colRef, { includeMetadataChanges: true }, (snapshot) => {
+      // 判斷這包資料是來自硬碟快取還是雲端最新
+      const source = snapshot.metadata.fromCache ? "⚡ 實體快取秒開（背景同步中...）" : "🟢 雲端已同步（全班即時互通）";
+      document.getElementById("adminSyncText").innerText = source;
 
       allData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      saveCache();
+      allData.sort((a, b) => parseDateObj(a.deadline) - parseDateObj(b.deadline));
+      
       renderFrontendTable();
       renderBackendHistory();
     }, (err) => {
       console.error("Firestore 錯誤:", err);
-      document.getElementById("adminSyncText").innerText = "🟡 離線快取保護模式";
+      document.getElementById("adminSyncText").innerText = "🔴 連線異常：" + err.code;
     });
 
+    // === 互動功能 ===
     window.setSubject = (subName) => {
       document.getElementById("subInput").value = subName;
       if (subName === "回條") document.getElementById("catInput").value = "回條";
@@ -610,6 +607,7 @@
       document.getElementById("detailModal").style.display = "flex";
     };
 
+    // 新增資料：因為開啟了快取，addDoc 也會被瞬間寫入本機並反映在畫面上，不卡頓
     window.saveData = async () => {
       const editId = document.getElementById("editingId").value;
       const category = document.getElementById("catInput").value;
@@ -624,27 +622,29 @@
       }
 
       const itemObj = { category, subject, title, deadline, details, active: true };
-
-      if (editId) {
-        const idx = allData.findIndex(x => x.id === editId);
-        if (idx > -1) allData[idx] = { id: editId, ...itemObj };
-      } else {
-        const tempId = "local_" + Date.now();
-        allData.push({ id: tempId, ...itemObj });
-      }
-      saveCache();
-      renderFrontendTable();
-      renderBackendHistory();
-      window.clearForm();
+      window.clearForm(); // 先把表單清空讓使用者覺得已經完成
 
       try {
-        if (editId && !String(editId).startsWith("local_")) {
+        if (editId) {
           await updateDoc(doc(db, "contactBookItems", editId), itemObj);
         } else {
           await addDoc(colRef, itemObj);
         }
       } catch (e) {
-        console.warn("寫入排程中:", e);
+        console.warn("目前可能離線，資料已保存至硬碟，恢復連線時將自動上傳。", e);
+      }
+    };
+
+    window.clearAllRecords = async () => {
+      if (!confirm("確定要「全部清空」所有聯絡簿記錄嗎？")) return;
+      try {
+        const snap = await getDocs(colRef);
+        for (const d of snap.docs) {
+          await deleteDoc(doc(db, "contactBookItems", d.id));
+        }
+        alert("✅ 已全部清空！");
+      } catch (e) {
+        console.warn(e);
       }
     };
 
@@ -673,27 +673,12 @@
     };
 
     window.toggleShelf = async (id, currentActive) => {
-      const idx = allData.findIndex(x => x.id === id);
-      if (idx > -1) {
-        allData[idx].active = !currentActive;
-        saveCache();
-        renderFrontendTable();
-        renderBackendHistory();
-      }
-      if (!String(id).startsWith("local_")) {
-        await updateDoc(doc(db, "contactBookItems", id), { active: !currentActive });
-      }
+      await updateDoc(doc(db, "contactBookItems", id), { active: !currentActive });
     };
 
     window.deleteItem = async (id) => {
       if (confirm("確定要從後台永久刪除這筆記錄嗎？")) {
-        allData = allData.filter(x => x.id !== id);
-        saveCache();
-        renderFrontendTable();
-        renderBackendHistory();
-        if (!String(id).startsWith("local_")) {
-          await deleteDoc(doc(db, "contactBookItems", id));
-        }
+        await deleteDoc(doc(db, "contactBookItems", id));
       }
     };
 
