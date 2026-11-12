@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>班級數位聯絡簿</title>
+  <style>
+    /* ================= 1. 現代化外觀樣式 (CSS) ================= */
+    :root {
+      --primary: #1e293b;      /* 主色：深石板藍 */
+      --accent: #2563eb;       /* 強調色：皇家藍 */
+      --accent-hover: #1d4ed8;
+      --bg: #f1f5f9;           /* 背景色：柔和淺灰藍 */
+      --card: #ffffff;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --muted: #64748b;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+      --success: #10b981;
+    }
+
+    * { box-sizing: border-box; font-family: "Microsoft JhengHei", -apple-system, BlinkMacSystemFont, sans-serif; }
+    body { margin: 0; background-color: var(--bg); color: var(--text); padding-bottom: 90px; }
+
+    /* 頂部導覽列與 5 大分類標籤 */
+    header {
+      background-color: var(--primary);
+      color: white;
+      padding-top: 14px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+    }
+    .header-bar {
+      max-width: 760px;
+      margin: 0 auto 12px auto;
+      padding: 0 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .header-title { font-size: 1.25rem; font-weight: 800; letter-spacing: 0.5px; }
+    
+    /* 雲端連線狀態燈 */
+    .sync-status {
+      font-size: 0.8rem;
+      background: rgba(255,255,255,0.1);
+      padding: 4px 10px;
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warning); }
+    .dot.online { background: var(--success); box-shadow: 0 0 6px var(--success); }
+    .dot.error { background: var(--danger); }
+
+    /* 頂部 5 個分類切換按鈕 */
+    .nav-tabs {
+      display: flex;
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 0 10px 10px 10px;
+      gap: 6px;
+    }
+    .tab-btn {
+      flex: 1;
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 8px;
+      color: #cbd5e1;
+      padding: 9px 4px;
+      font-size: 0.95rem;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .tab-btn:hover { background: rgba(255,255,255,0.2); color: white; }
+    .tab-btn.active {
+      background: white;
+      color: var(--primary);
+      border-color: white;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    }
+
+    /* 主容器 */
+    .container { max-width: 760px; margin: 20px auto; padding: 0 12px; }
+
+    /* 前台三欄式聯絡簿表格 */
+    .table-card {
+      background: var(--card);
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+      border: 1px solid var(--border);
+    }
+    .contact-table { width: 100%; border-collapse: collapse; }
+    .contact-table th {
+      background: #f8fafc;
+      color: var(--muted);
+      padding: 13px 14px;
+      text-align: left;
+      border-bottom: 2px solid var(--border);
+      font-size: 0.9rem;
+      font-weight: 700;
+    }
+    .contact-table td {
+      padding: 16px 14px;
+      border-bottom: 1px solid var(--border);
+      font-size: 1rem;
+      vertical-align: middle;
+    }
+    .item-row { cursor: pointer; transition: background 0.15s; }
+    .item-row:hover { background-color: #f0f7ff; }
+    .item-row:last-child td { border-bottom: none; }
+
+    .col-1 { width: 26%; font-weight: 700; color: var(--primary); }
+    .col-2 { width: 48%; font-weight: 500; }
+    .col-3 { width: 26%; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+    /* 分類與到期提醒小標籤 */
+    .tag {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 5px;
+      font-size: 0.75rem;
+      font-weight: bold;
+      color: white;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .tag-作業 { background: #3b82f6; }
+    .tag-考試 { background: #ef4444; }
+    .tag-回條 { background: #f59e0b; }
+    .tag-重要事 { background: #8b5cf6; }
+
+    .due-badge {
+      display: inline-block;
+      font-size: 0.72rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: bold;
+      margin-right: 4px;
+    }
+    .due-today { background: #fee2e2; color: #b91c1c; }
+    .due-tomorrow { background: #fef3c7; color: #b45309; }
+
+    /* 彈出視窗 (看細項 & 密碼驗證) */
+    .modal-bg {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(15, 23, 42, 0.55);
+      backdrop-filter: blur(3px);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal-card {
+      background: white;
+      width: 100%;
+      max-width: 480px;
+      border-radius: 14px;
+      padding: 24px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.25);
+      animation: zoomIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    @keyframes zoomIn {
+      from { transform: scale(0.92); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+    .modal-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 12px;
+      margin-bottom: 14px;
+    }
+    .close-x { background: #f1f5f9; border: none; width: 32px; height: 32px; border-radius: 50%; font-size: 1.2rem; cursor: pointer; color: var(--muted); display: flex; align-items: center; justify-content: center; }
+    .close-x:hover { background: #e2e8f0; color: var(--text); }
+    
+    .detail-meta-box {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 0.92rem;
+      margin-bottom: 14px;
+      line-height: 1.7;
+    }
+    .detail-text {
+      white-space: pre-wrap;
+      font-size: 1.05rem;
+      line-height: 1.7;
+      color: #1e293b;
+      min-height: 70px;
+      padding: 4px 2px;
+    }
+
+    /* 後台管理介面 */
+    #backendSection { display: none; }
+    .admin-box {
+      background: white;
+      padding: 22px;
+      border-radius: 12px;
+      box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+      border: 1px solid var(--border);
+      margin-bottom: 20px;
+    }
+    .input-group { margin-bottom: 16px; }
+    .input-group label { display: block; font-weight: 700; margin-bottom: 6px; font-size: 0.92rem; color: var(--primary); }
+    .input-field {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font-size: 1rem;
+      transition: border 0.15s;
+    }
+    .input-field:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12); }
+
+    /* 快速點選膠囊按鈕 (科目 & 日期) */
+    .quick-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .chip {
+      background: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      color: #334155;
+      padding: 4px 10px;
+      border-radius: 16px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .chip:hover { background: #e2e8f0; border-color: #94a3b8; }
+
+    /* 按鈕樣式 */
+    .btn {
+      padding: 10px 18px;
+      border: none;
+      border-radius: 8px;
+      font-weight: 700;
+      cursor: pointer;
+      color: white;
+      font-size: 0.95rem;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn-blue { background: var(--accent); }
+    .btn-blue:hover { background: var(--accent-hover); }
+    .btn-gray { background: #64748b; }
+    .btn-red { background: var(--danger); }
+    .btn-sm { padding: 6px 10px; font-size: 0.82rem; border-radius: 6px; }
+
+    /* 後台記錄列表 */
+    .record-row {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      background: #fafafa;
+    }
+    .badge-on { background: #dcfce7; color: #166534; padding: 3px 8px; border-radius: 6px; font-size: 0.78rem; font-weight: bold; }
+    .badge-off { background: #fee2e2; color: #991b1b; padding: 3px 8px; border-radius: 6px; font-size: 0.78rem; font-weight: bold; }
+
+    /* 右下角切換按鈕 */
+    .mode-switch-btn {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: var(--primary);
+      color: white;
+      border: 2px solid white;
+      padding: 11px 18px;
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 0.95rem;
+      cursor: pointer;
+      box-shadow: 0 6px 16px rgba(0,0,0,0.25);
+      z-index: 150;
+      transition: transform 0.15s;
+    }
+    .mode-switch-btn:hover { transform: translateY(-2px); }
+  </style>
+</head>
+<body>
+
+  <!-- ================= 2. 網頁骨架 (HTML) ================= -->
+  <header>
+    <div class="header-bar">
+      <div class="header-title" id="pageTitle">📋 班級聯絡簿</div>
+      <div class="sync-status" id="syncBadge">
+        <span class="dot" id="syncDot"></span>
+        <span id="syncText">連線中...</span>
+      </div>
+    </div>
+    <!-- 前台頂部 5 個分類按鈕 -->
+    <div class="nav-tabs" id="navTabs">
+      <button class="tab-btn active" onclick="filterCategory('綜合', this)">綜合</button>
+      <button class="tab-btn" onclick="filterCategory('作業', this)">作業</button>
+      <button class="tab-btn" onclick="filterCategory('考試', this)">考試</button>
+      <button class="tab-btn" onclick="filterCategory('回條', this)">回條</button>
+      <button class="tab-btn" onclick="filterCategory('重要事', this)">重要事</button>
+    </div>
+  </header>
+
+  <!-- 【前台】學生瀏覽區 -->
+  <main class="container" id="frontendSection">
+    <div class="table-card">
+      <table class="contact-table">
+        <thead>
+          <tr>
+            <th class="col-1">科目 or 回條</th>
+            <th class="col-2">作業 or 考試（點一下看細項）</th>
+            <th class="col-3">時間</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody">
+          <tr><td colspan="3" style="text-align:center; padding:40px; color:#64748b;">⏳ 正在同步聯絡簿資料...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+
+  <!-- 【後台】管理員新增/編輯/上下架區 -->
+  <main class="container" id="backendSection">
+    <div class="admin-box">
+      <h3 style="margin-top:0; color:var(--primary);" id="formTitle">➕ 新增 / 上架聯絡簿事項</h3>
+      <input type="hidden" id="editingId">
+
+      <div class="input-group">
+        <label>1. 分類標籤</label>
+        <select id="catInput" class="input-field">
+          <option value="作業">📘 作業</option>
+          <option value="考試">📕 考試</option>
+          <option value="回條">📙 回條</option>
+          <option value="重要事">🟣 重要事</option>
+        </select>
+      </div>
+
+      <div class="input-group">
+        <label>2. 科目或來源（可直接打字，或點下方快捷按鈕）</label>
+        <input type="text" id="subInput" class="input-field" placeholder="例如：國文、數學、回條...">
+        <div class="quick-chips">
+          <button type="button" class="chip" onclick="setSubject('國文')">國文</button>
+          <button type="button" class="chip" onclick="setSubject('英文')">英文</button>
+          <button type="button" class="chip" onclick="setSubject('數學')">數學</button>
+          <button type="button" class="chip" onclick="setSubject('物理')">物理</button>
+          <button type="button" class="chip" onclick="setSubject('化學')">化學</button>
+          <button type="button" class="chip" onclick="setSubject('生物')">生物</button>
+          <button type="button" class="chip" onclick="setSubject('地科')">地科</button>
+          <button type="button" class="chip" onclick="setSubject('歷史')">歷史</button>
+          <button type="button" class="chip" onclick="setSubject('地理')">地理</button>
+          <button type="button" class="chip" onclick="setSubject('公民')">公民</button>
+          <button type="button" class="chip" onclick="setSubject('回條')">回條</button>
+          <button type="button" class="chip" onclick="setSubject('班務')">班務</button>
+        </div>
+      </div>
+
+      <div class="input-group">
+        <label>3. 作業 / 考試標題（顯示在列表中間）</label>
+        <input type="text" id="titleInput" class="input-field" placeholder="例如：語文演練、考 4-1、環保回條">
+      </div>
+
+      <div class="input-group">
+        <label>4. 截止日期（依日期排序；過完當天隔日自動下架）</label>
+        <input type="date" id="timeInput" class="input-field">
+        <div class="quick-chips">
+          <button type="button" class="chip" onclick="setQuickDate(0)">📅 今天</button>
+          <button type="button" class="chip" onclick="setQuickDate(1)">📅 明天 (+1天)</button>
+          <button type="button" class="chip" onclick="setQuickDate(2)">📅 後天 (+2天)</button>
+          <button type="button" class="chip" onclick="setQuickDate(3)">📅 大後天 (+3天)</button>
+          <button type="button" class="chip" onclick="setQuickDate(7)">📅 下週 (+7天)</button>
+        </div>
+      </div>
+
+      <div class="input-group">
+        <label>5. 詳細事項（同學點開項目放大後看到的內容）</label>
+        <textarea id="detailInput" class="input-field" rows="4" placeholder="請輸入頁數、考試範圍或注意事項..."></textarea>
+      </div>
+
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-blue" id="submitBtn" onclick="saveData()">💾 儲存並上架</button>
+        <button class="btn btn-gray" id="cancelBtn" style="display:none;" onclick="clearForm()">取消編輯</button>
+      </div>
+    </div>
+
+    <!-- 後台歷史記錄與延期管理 -->
+    <div class="admin-box">
+      <h3 style="margin-top:0; color:var(--primary);">📂 後台記錄管理（含已截止項目）</h3>
+      <p style="font-size:0.85rem; color:var(--muted); margin-top:-6px;">
+        💡 若遇到延期，點擊該項目的「編輯 / 延期」重設日期並儲存，即可重新上架到前台。
+      </p>
+      <div id="historyList"></div>
+    </div>
+  </main>
+
+  <!-- 【彈出視窗 1】點擊列表項目放大看細項 -->
+  <div class="modal-bg" id="detailModal" onclick="closeModal('detailModal')">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <div class="modal-top">
+        <h3 style="margin:0; font-size:1.25rem;" id="detailHeading">科目 - 標題</h3>
+        <button class="close-x" onclick="closeModal('detailModal')">&times;</button>
+      </div>
+      <div class="detail-meta-box" id="detailTimeInfo"></div>
+      <div class="detail-text" id="detailBodyText"></div>
+    </div>
+  </div>
+
+  <!-- 【彈出視窗 2】進入後台的密碼驗證 -->
+  <div class="modal-bg" id="pwdModal" onclick="closeModal('pwdModal')">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <div class="modal-top">
+        <h3 style="margin:0;">🔒 請輸入後台管理密碼</h3>
+        <button class="close-x" onclick="closeModal('pwdModal')">&times;</button>
+      </div>
+      <div class="input-group">
+        <input type="password" id="pwdInput" class="input-field" placeholder="請輸入密碼..." onkeyup="if(event.key==='Enter') checkPassword()">
+      </div>
+      <button class="btn btn-blue" style="width:100%;" onclick="checkPassword()">確認進入後台</button>
+    </div>
+  </div>
+
+  <!-- 右下角：前台/後台切換按鈕 -->
+  <button class="mode-switch-btn" id="switchBtn" onclick="switchView()">前台 / 後台</button>
+
+
+  <!-- ================= 3. 程式邏輯與資料庫連線 (JavaScript) ================= -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    // ★ 你的 Firebase 專案設定 (class-book-d2557) ★
+    const firebaseConfig = {
+      apiKey: "AIzaSyCLIEwZ1UCdvE66ISLblxZdCF51dlWSs7k",
+      authDomain: "class-book-d2557.firebaseapp.com",
+      projectId: "class-book-d2557",
+      storageBucket: "class-book-d2557.firebasestorage.app",
+      messagingSenderId: "293636243310",
+      appId: "1:293636243310:web:55fd394288806f58908b7f",
+      measurementId: "G-LCNB617D8V"
+    };
+
+    // ★ 後台密碼（可自行修改） ★
+    const ADMIN_PASSWORD = "1234";
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const colRef = collection(db, "contactBookItems");
+
+    let allData = [];
+    let currentTab = "綜合";
+    let inBackend = false;
+    let isUnlocked = false;
+
+    // 預設將後台日期設為「明天」
+    window.setQuickDate = (addDays) => {
+      const d = new Date();
+      d.setDate(d.getDate() + addDays);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      document.getElementById("timeInput").value = `${yyyy}-${mm}-${dd}`;
+    };
+    window.setQuickDate(1);
+
+    // 點擊科目膠囊快速填入
+    window.setSubject = (subName) => {
+      document.getElementById("subInput").value = subName;
+      if (subName === "回條") document.getElementById("catInput").value = "回條";
+      if (subName === "班務") document.getElementById("catInput").value = "重要事";
+    };
+
+    // 安全解析日期（避免跨時區偏差並相容舊格式）
+    function parseDateObj(dateStr) {
+      if (!dateStr) return new Date();
+      const onlyDate = String(dateStr).split('T')[0];
+      const parts = onlyDate.split('-').map(Number);
+      if (parts.length !== 3) return new Date(dateStr);
+      return new Date(parts[0], parts[1] - 1, parts[2]);
+    }
+
+    // 判斷是否過期（過了該日期的晚上 23:59:59 才算過期下架）
+    function isDateExpired(dateStr) {
+      const target = parseDateObj(dateStr);
+      target.setHours(23, 59, 59, 999);
+      return new Date() > target;
+    }
+
+    // 計算距離今天還有幾天（用來標示「今日到期」、「明日」）
+    function getDaysLeftBadge(dateStr) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const target = parseDateObj(dateStr);
+      target.setHours(0, 0, 0, 0);
+      const diffDays = Math.round((target - today) / (1000 * 60 * 60 * 24));
+      if (diffDays === 0) return `<span class="due-badge due-today">今日</span>`;
+      if (diffDays === 1) return `<span class="due-badge due-tomorrow">明日</span>`;
+      return "";
+    }
+
+    // 列表日期格式：11/12(四)
+    function getShortDate(dateStr) {
+      const d = parseDateObj(dateStr);
+      const week = ['日', '一', '二', '三', '四', '五', '六'];
+      return `${d.getMonth() + 1}/${d.getDate()}(${week[d.getDay()]})`;
+    }
+
+    // 細項視窗完整日期格式：11月12日 (星期四)
+    function getFullDate(dateStr) {
+      const d = parseDateObj(dateStr);
+      const week = ['日', '一', '二', '三', '四', '五', '六'];
+      return `${d.getMonth() + 1}月${d.getDate()}日 (星期${week[d.getDay()]})`;
+    }
+
+    // 防止 HTML 特殊字元破版
+    function escapeHtml(str) {
+      if (!str) return "";
+      return String(str).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+    }
+
+    // 【核心監聽】直接抓取整個集合，並在本地端依日期由近到遠排序
+    onSnapshot(colRef, (snapshot) => {
+      // 更新右上角連線燈號
+      document.getElementById("syncDot").className = "dot online";
+      document.getElementById("syncText").innerText = "已同步";
+
+      allData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      
+      // 依照截止日期由近到遠排序
+      allData.sort((a, b) => parseDateObj(a.deadline) - parseDateObj(b.deadline));
+
+      renderFrontendTable();
+      renderBackendHistory();
+    }, (err) => {
+      console.error("Firestore 讀取錯誤:", err);
+      document.getElementById("syncDot").className = "dot error";
+      document.getElementById("syncText").innerText = "連線失敗";
+      document.getElementById("tableBody").innerHTML = `
+        <tr>
+          <td colspan="3" style="text-align:center; padding:35px; color:#ef4444; line-height:1.6;">
+            ⚠️ <strong>無法讀取雲端資料庫！</strong><br>
+            請至 Firebase 控制台 ➔ Firestore Database ➔ 規則 (Rules)<br>
+            確認已設定為 <code>allow read, write: if true;</code> 並點擊發布。
+          </td>
+        </tr>`;
+    });
+
+    // 繪製前台列表
+    function renderFrontendTable() {
+      const tbody = document.getElementById("tableBody");
+
+      const visibleList = allData.filter(item => {
+        const notExpired = !isDateExpired(item.deadline);
+        const isShown = item.active !== false;
+        const matchCategory = (currentTab === "綜合") || (item.category === currentTab);
+        return notExpired && isShown && matchCategory;
+      });
+
+      if (visibleList.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; padding:40px; color:#64748b;">🎉 目前「${currentTab}」沒有待辦事項！</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = visibleList.map(item => `
+        <tr class="item-row" onclick="showDetail('${item.id}')">
+          <td class="col-1">${escapeHtml(item.subject)}</td>
+          <td class="col-2">
+            ${currentTab === '綜合' ? `<span class="tag tag-${escapeHtml(item.category)}">${escapeHtml(item.category)}</span>` : ''}
+            ${escapeHtml(item.title)}
+          </td>
+          <td class="col-3">
+            ${getDaysLeftBadge(item.deadline)}${getShortDate(item.deadline)}
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    // 繪製後台歷史清單
+    function renderBackendHistory() {
+      const box = document.getElementById("historyList");
+
+      if (allData.length === 0) {
+        box.innerHTML = `<p style="color:#64748b; text-align:center; padding:20px;">目前還沒有任何記錄</p>`;
+        return;
+      }
+
+      // 後台顯示：把最新/未來的排在上面方便管理
+      const adminList = [...allData].reverse();
+
+      box.innerHTML = adminList.map(item => {
+        const expired = isDateExpired(item.deadline);
+        const hidden = item.active === false;
+        
+        let statusBadge = `<span class="badge-on">🟢 上架中</span>`;
+        if (expired) statusBadge = `<span class="badge-off">🔴 日期截止已下架</span>`;
+        else if (hidden) statusBadge = `<span class="badge-off">⚪ 手動下架中</span>`;
+
+        return `
+          <div class="record-row">
+            <div>
+              <div style="margin-bottom:4px;">
+                ${statusBadge}
+                <strong style="margin-left:6px;">[${escapeHtml(item.category)}] ${escapeHtml(item.subject)} — ${escapeHtml(item.title)}</strong>
+              </div>
+              <div style="font-size:0.85rem; color:#64748b;">
+                截止日期：${getFullDate(item.deadline)}
+              </div>
+            </div>
+            <div style="display:flex; gap:6px;">
+              <button class="btn btn-blue btn-sm" onclick="loadToEdit('${item.id}')">✏️ 編輯 / 延期</button>
+              <button class="btn btn-gray btn-sm" onclick="toggleShelf('${item.id}', ${item.active !== false})">
+                ${item.active !== false ? '下架' : '重新上架'}
+              </button>
+              <button class="btn btn-red btn-sm" onclick="deleteItem('${item.id}')">刪除</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // 1. 切換頂部 5 個分類標籤
+    window.filterCategory = (catName, btnElement) => {
+      currentTab = catName;
+      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+      btnElement.classList.add("active");
+      renderFrontendTable();
+    };
+
+    // 2. 點擊列表放大看細項
+    window.showDetail = (id) => {
+      const target = allData.find(x => x.id === id);
+      if (!target) return;
+      document.getElementById("detailHeading").innerText = `${target.subject}｜${target.title}`;
+      document.getElementById("detailTimeInfo").innerHTML = `
+        <strong>📌 分類：</strong>${escapeHtml(target.category)}<br>
+        <strong>📅 日期：</strong>${getFullDate(target.deadline)}
+      `;
+      document.getElementById("detailBodyText").innerText = target.details || "（無額外細項說明）";
+      document.getElementById("detailModal").style.display = "flex";
+    };
+
+    // 3. 後台儲存資料（新增或修改）
+    window.saveData = async () => {
+      const editId = document.getElementById("editingId").value;
+      const category = document.getElementById("catInput").value;
+      const subject = document.getElementById("subInput").value.trim();
+      const title = document.getElementById("titleInput").value.trim();
+      const deadline = document.getElementById("timeInput").value;
+      const details = document.getElementById("detailInput").value.trim();
+
+      if (!subject || !title || !deadline) {
+        alert("請填寫完整「科目」、「標題」與「截止日期」！");
+        return;
+      }
+
+      const btn = document.getElementById("submitBtn");
+      btn.disabled = true;
+      btn.innerText = "⏳ 處理中...";
+
+      const itemObj = { category, subject, title, deadline, details, active: true };
+
+      try {
+        if (editId) {
+          await updateDoc(doc(db, "contactBookItems", editId), itemObj);
+        } else {
+          await addDoc(colRef, itemObj);
+        }
+        window.clearForm();
+        // 自動切回「綜合」確保回到前台時一定看得到
+        currentTab = "綜合";
+        document.querySelectorAll(".tab-btn").forEach((b, i) => b.classList.toggle("active", i === 0));
+        alert("✅ 儲存並上架成功！切回前台即可看到。");
+      } catch (e) {
+        alert("❌ 儲存失敗：" + e.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerText = "💾 儲存並上架";
+      }
+    };
+
+    // 4. 載入資料到上方表單進行編輯 / 延期
+    window.loadToEdit = (id) => {
+      const target = allData.find(x => x.id === id);
+      if (!target) return;
+      document.getElementById("formTitle").innerText = "✏️ 編輯項目 / 延期重設時間";
+      document.getElementById("editingId").value = target.id;
+      document.getElementById("catInput").value = target.category;
+      document.getElementById("subInput").value = target.subject;
+      document.getElementById("titleInput").value = target.title;
+      document.getElementById("timeInput").value = String(target.deadline).split('T')[0];
+      document.getElementById("detailInput").value = target.details || "";
+      document.getElementById("cancelBtn").style.display = "inline-block";
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+
+    // 5. 清空重設表單
+    window.clearForm = () => {
+      document.getElementById("formTitle").innerText = "➕ 新增 / 上架聯絡簿事項";
+      document.getElementById("editingId").value = "";
+      document.getElementById("subInput").value = "";
+      document.getElementById("titleInput").value = "";
+      window.setQuickDate(1);
+      document.getElementById("detailInput").value = "";
+      document.getElementById("cancelBtn").style.display = "none";
+    };
+
+    // 6. 手動上下架切換
+    window.toggleShelf = async (id, currentActive) => {
+      await updateDoc(doc(db, "contactBookItems", id), { active: !currentActive });
+    };
+
+    // 7. 永久刪除記錄
+    window.deleteItem = async (id) => {
+      if (confirm("確定要從後台永久刪除這筆記錄嗎？")) {
+        await deleteDoc(doc(db, "contactBookItems", id));
+      }
+    };
+
+    // 8. 右下角「前台 / 後台」切換
+    window.switchView = () => {
+      if (!inBackend) {
+        if (isUnlocked) {
+          enterBackend();
+        } else {
+          document.getElementById("pwdInput").value = "";
+          document.getElementById("pwdModal").style.display = "flex";
+          document.getElementById("pwdInput").focus();
+        }
+      } else {
+        inBackend = false;
+        document.getElementById("frontendSection").style.display = "block";
+        document.getElementById("navTabs").style.display = "flex";
+        document.getElementById("backendSection").style.display = "none";
+        document.getElementById("pageTitle").innerText = "📋 班級聯絡簿";
+        document.getElementById("switchBtn").innerText = "前台 / 後台";
+      }
+    };
+
+    window.checkPassword = () => {
+      const val = document.getElementById("pwdInput").value;
+      if (val === ADMIN_PASSWORD) {
+        isUnlocked = true;
+        window.closeModal("pwdModal");
+        enterBackend();
+      } else {
+        alert("❌ 密碼錯誤！");
+      }
+    };
+
+    function enterBackend() {
+      inBackend = true;
+      document.getElementById("frontendSection").style.display = "none";
+      document.getElementById("navTabs").style.display = "none";
+      document.getElementById("backendSection").style.display = "block";
+      document.getElementById("pageTitle").innerText = "⚙️ 聯絡簿後台管理";
+      document.getElementById("switchBtn").innerText = "⬅️ 返回前台";
+    }
+
+    window.closeModal = (id) => {
+      document.getElementById(id).style.display = "none";
+    };
+
+    // 支援按鍵盤 ESC 關閉彈出視窗
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        window.closeModal("detailModal");
+        window.closeModal("pwdModal");
+      }
+    });
+  </script>
+</body>
+</html>
