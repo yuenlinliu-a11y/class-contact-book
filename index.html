@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>班級數位聯絡簿</title>
-  <!-- 預先建立 Google 雲端連線，加快載入速度 -->
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
   <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
   <style>
@@ -40,23 +39,10 @@
       margin: 0 auto 12px auto;
       padding: 0 16px;
       display: flex;
-      justify-content: space-between;
+      justify-content: center;
       align-items: center;
     }
-    .header-title { font-size: 1.25rem; font-weight: 800; letter-spacing: 0.5px; }
-    
-    .sync-status {
-      font-size: 0.8rem;
-      background: rgba(255,255,255,0.12);
-      padding: 4px 10px;
-      border-radius: 20px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warning); }
-    .dot.online { background: var(--success); box-shadow: 0 0 6px var(--success); }
-    .dot.error { background: var(--danger); }
+    .header-title { font-size: 1.25rem; font-weight: 800; letter-spacing: 1px; }
 
     /* 頂部 5 個分類切換按鈕 */
     .nav-tabs {
@@ -208,6 +194,17 @@
       border: 1px solid var(--border);
       margin-bottom: 20px;
     }
+    .admin-status-bar {
+      font-size: 0.82rem;
+      padding: 6px 12px;
+      border-radius: 6px;
+      background: #f1f5f9;
+      color: var(--muted);
+      margin-bottom: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
     .input-group { margin-bottom: 16px; }
     .input-group label { display: block; font-weight: 700; margin-bottom: 6px; font-size: 0.92rem; color: var(--primary); }
     .input-field {
@@ -259,18 +256,6 @@
     .badge-on { background: #dcfce7; color: #166534; padding: 3px 8px; border-radius: 6px; font-size: 0.78rem; font-weight: bold; }
     .badge-off { background: #fee2e2; color: #991b1b; padding: 3px 8px; border-radius: 6px; font-size: 0.78rem; font-weight: bold; }
 
-    .warn-banner {
-      display: none;
-      background: #fffbeb;
-      border: 1px solid #fde68a;
-      color: #92400e;
-      padding: 12px 16px;
-      border-radius: 10px;
-      margin-bottom: 16px;
-      font-size: 0.9rem;
-      line-height: 1.6;
-    }
-
     .mode-switch-btn {
       position: fixed;
       bottom: 20px;
@@ -293,10 +278,6 @@
   <header>
     <div class="header-bar">
       <div class="header-title" id="pageTitle">📋 班級聯絡簿</div>
-      <div class="sync-status">
-        <span class="dot" id="syncDot"></span>
-        <span id="syncText">秒開載入中</span>
-      </div>
     </div>
     <div class="nav-tabs" id="navTabs">
       <button class="tab-btn active" data-cat="綜合" onclick="filterCategory('綜合')">綜合</button>
@@ -307,15 +288,7 @@
     </div>
   </header>
 
-  <div class="container">
-    <!-- 雲端連線超時提醒橫幅 -->
-    <div class="warn-banner" id="cloudWarnBanner">
-      ⚠️ <strong>偵測到雲端資料庫回應較慢或尚未啟用！</strong>（目前已自動切換為「本機快取秒開模式」，重開網頁資料不會消失）<br>
-      👉 若要讓全班不同手機互通，請確認已至 <a href="https://console.firebase.google.com/project/class-book-d2557/firestore" target="_blank" style="color:#b45309;font-weight:bold;">Firebase Firestore 控制台</a> 點擊「建立資料庫」，並將「規則 (Rules)」設為 <code>allow read, write: if true;</code>。
-    </div>
-  </div>
-
-  <!-- 【前台】學生瀏覽區 -->
+  <!-- 【前台】學生瀏覽區（完全乾淨，無任何工程提示） -->
   <main class="container" id="frontendSection">
     <div class="table-card">
       <table class="contact-table">
@@ -334,10 +307,13 @@
   <!-- 【後台】管理員新增/編輯/上下架區 -->
   <main class="container" id="backendSection">
     <div class="admin-box">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
-        <h3 style="margin:0; color:var(--primary);" id="formTitle">➕ 新增 / 上架聯絡簿事項</h3>
+      <!-- 只有管理員在後台才看得到的連線狀態列 -->
+      <div class="admin-status-bar">
+        <span id="adminSyncText">🟡 雲端連線檢查中...</span>
         <button class="btn btn-gray btn-sm" onclick="logoutAdmin()">🔒 登出鎖定後台</button>
       </div>
+
+      <h3 style="margin-top:0; color:var(--primary);" id="formTitle">➕ 新增 / 上架聯絡簿事項</h3>
       <input type="hidden" id="editingId">
 
       <div class="input-group">
@@ -428,13 +404,12 @@
       <div class="input-group">
         <input type="password" id="pwdInput" class="input-field" placeholder="請輸入密碼..." onkeyup="if(event.key==='Enter') checkPassword()">
       </div>
-      <button class="btn btn-blue" style="width:100%;" onclick="checkPassword()">確認進入後台 (自動記憶免重登)</button>
+      <button class="btn btn-blue" style="width:100%;" onclick="checkPassword()">確認進入後台</button>
     </div>
   </div>
 
   <button class="mode-switch-btn" id="switchBtn" onclick="switchView()">前台 / 後台</button>
 
-  <!-- ================= 3. 程式邏輯（含本機秒開快取 + 狀態記憶 + 雲端同步） ================= -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import { initializeFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
@@ -455,14 +430,11 @@
     const STATE_AUTH_KEY = "cb_admin_unlocked";
     const STATE_VIEW_KEY = "cb_last_view";
 
-    // 1. 讀取記憶的狀態（重開網頁不重置！）
     let allData = JSON.parse(localStorage.getItem(CACHE_KEY) || "[]");
     let currentTab = localStorage.getItem(STATE_TAB_KEY) || "綜合";
     let isUnlocked = localStorage.getItem(STATE_AUTH_KEY) === "true";
     let inBackend = (localStorage.getItem(STATE_VIEW_KEY) === "backend") && isUnlocked;
-    let cloudConnected = false;
 
-    // 工具函式
     function parseDateObj(dateStr) {
       if (!dateStr) return new Date();
       const onlyDate = String(dateStr).split('T')[0];
@@ -510,7 +482,6 @@
       localStorage.setItem(CACHE_KEY, JSON.stringify(allData));
     }
 
-    // 繪製前台與後台
     function renderFrontendTable() {
       const tbody = document.getElementById("tableBody");
       document.querySelectorAll(".tab-btn").forEach(b => {
@@ -579,7 +550,6 @@
       }).join('');
     }
 
-    // 2. 網頁打開 0.01 秒內立即渲染快取畫面與上次停留的視角！
     window.setQuickDate = (addDays) => {
       const d = new Date();
       d.setDate(d.getDate() + addDays);
@@ -593,39 +563,21 @@
     renderBackendHistory();
     if (inBackend) enterBackend();
 
-    // 3. 啟動 Firebase（加上 experimentalForceLongPolling 解決網路卡頓）
     const app = initializeApp(firebaseConfig);
     const db = initializeFirestore(app, { experimentalForceLongPolling: true });
     const colRef = collection(db, "contactBookItems");
 
-    // 若超過 3.5 秒雲端沒回應，顯示診斷提示並啟用本機快取保護
-    const slowTimer = setTimeout(() => {
-      if (!cloudConnected) {
-        document.getElementById("syncDot").className = "dot error";
-        document.getElementById("syncText").innerText = "本機快取模式";
-        document.getElementById("cloudWarnBanner").style.display = "block";
-      }
-    }, 3500);
-
     onSnapshot(colRef, (snapshot) => {
-      cloudConnected = true;
-      clearTimeout(slowTimer);
-      document.getElementById("cloudWarnBanner").style.display = "none";
-      document.getElementById("syncDot").className = "dot online";
-      document.getElementById("syncText").innerText = "雲端即時同步";
-
+      document.getElementById("adminSyncText").innerText = "🟢 雲端資料庫已連線（全班即時同步中）";
       allData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       saveCache();
       renderFrontendTable();
       renderBackendHistory();
     }, (err) => {
       console.error("Firestore 錯誤:", err);
-      document.getElementById("syncDot").className = "dot error";
-      document.getElementById("syncText").innerText = "權限未開(快取模式)";
-      document.getElementById("cloudWarnBanner").style.display = "block";
+      document.getElementById("adminSyncText").innerText = "🔴 雲端未開通（目前僅本機儲存，請檢查 Firebase 規則）";
     });
 
-    // 互動功能
     window.setSubject = (subName) => {
       document.getElementById("subInput").value = subName;
       if (subName === "回條") document.getElementById("catInput").value = "回條";
@@ -650,7 +602,6 @@
       document.getElementById("detailModal").style.display = "flex";
     };
 
-    // 樂觀更新（Optimistic UI）：按下儲存瞬間生效，不卡「處理中」！
     window.saveData = async () => {
       const editId = document.getElementById("editingId").value;
       const category = document.getElementById("catInput").value;
@@ -666,7 +617,6 @@
 
       const itemObj = { category, subject, title, deadline, details, active: true };
 
-      // 先立即寫入本機快取並更新畫面（0秒完成，關掉重開也不會不見）
       if (editId) {
         const idx = allData.findIndex(x => x.id === editId);
         if (idx > -1) allData[idx] = { id: editId, ...itemObj };
@@ -679,7 +629,6 @@
       renderBackendHistory();
       window.clearForm();
 
-      // 背景同步到 Firebase 雲端
       try {
         if (editId && !String(editId).startsWith("local_")) {
           await updateDoc(doc(db, "contactBookItems", editId), itemObj);
@@ -687,7 +636,7 @@
           await addDoc(colRef, itemObj);
         }
       } catch (e) {
-        console.warn("雲端寫入未完成，已保存在本機快取:", e);
+        console.warn("雲端寫入未完成:", e);
       }
     };
 
